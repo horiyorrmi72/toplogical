@@ -1,0 +1,5 @@
+- encrypt account details at rest to mitigate data leak
+- in app notification
+- add type
+- profile settings
+- registeration
