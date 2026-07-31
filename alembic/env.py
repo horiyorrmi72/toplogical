@@ -45,6 +45,7 @@ def do_run_migrations(connection):
     with context.begin_transaction():
         context.run_migrations()
 
+
 async def run_async_migrations():
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section),
