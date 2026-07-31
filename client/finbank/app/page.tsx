@@ -22,7 +22,7 @@ interface Transaction {
 
 interface NotificationItem {
   id: string;
-  title: str;
+  title: string;
   message: string;
   is_read: boolean;
   created_at: string;
