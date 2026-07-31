@@ -1,8 +1,10 @@
 "use client";
 
 import { Bell } from "lucide-react";
+
 import React, { useState, useEffect } from "react";
-const API_BASE = "http://localhost:8000/api/v1";
+// const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 interface Account {
   id: string;
@@ -73,7 +75,7 @@ export default function FinBankDashboard() {
   }, []);
 
   // handle Login
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
@@ -91,7 +93,7 @@ export default function FinBankDashboard() {
   };
 
   // registeration
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setAuthMsg("");
 
@@ -114,11 +116,22 @@ export default function FinBankDashboard() {
     }
   };
 
+  //logout
+  const logout = () => {
+    localStorage.removeItem("token");
+    setToken(null);
+  };
+
   // fetch user  profile
   const fetchProfile = async () => {
     const res = await fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    //we send the trigger with necessary params to the server to blacklist the token and invalidate the refresh token and session
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setProfile(data);
@@ -131,6 +144,10 @@ export default function FinBankDashboard() {
     const res = await fetch(`${API_BASE}/accounts/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) setAccounts(await res.json());
   };
 
@@ -140,6 +157,10 @@ export default function FinBankDashboard() {
     const res = await fetch(`${API_BASE}/transactions/${query}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setTransactions(data.items);
@@ -151,6 +172,10 @@ export default function FinBankDashboard() {
     const res = await fetch(`${API_BASE}/notifications/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       setNotifications(await res.json());
     }
@@ -162,6 +187,10 @@ export default function FinBankDashboard() {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       fetchNotifications();
     }
@@ -176,7 +205,7 @@ export default function FinBankDashboard() {
   }, [token, search]);
 
   // transfer
-  const handleTransfer = async (e) => {
+  const handleTransfer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setTransferMsg("");
     const res = await fetch(`${API_BASE}/transfers/`, {
@@ -204,7 +233,7 @@ export default function FinBankDashboard() {
   };
 
   // update profile name
-  const handleProfileUpdate = async (e) => {
+  const handleProfileUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setProfileMsg("");
     const res = await fetch(`${API_BASE}/profile/me`, {
@@ -216,6 +245,10 @@ export default function FinBankDashboard() {
       body: JSON.stringify({ full_name: fullNameInput }),
     });
     const data = await res.json();
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       setProfileMsg("Profile name updated successfully!");
       fetchProfile();
@@ -225,7 +258,7 @@ export default function FinBankDashboard() {
   };
 
   // change password
-  const handleChangePassword = async (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setProfileMsg("");
     const res = await fetch(`${API_BASE}/profile/change-password`, {
@@ -240,6 +273,10 @@ export default function FinBankDashboard() {
       }),
     });
     const data = await res.json();
+    if (res.status === 401) {
+      logout();
+      return;
+    }
     if (res.ok) {
       setProfileMsg("Password updated successfully!");
       setCurrentPasswordInput("");
@@ -273,41 +310,6 @@ export default function FinBankDashboard() {
       </div>
     );
   }
-
-  // if (!token) {
-  //   return (
-  //     <div className="flex items-center justify-center h-screen bg-slate-100">
-  //       <form
-  //         onSubmit={handleLogin}
-  //         className="p-6 bg-white rounded shadow-md w-80 space-y-4"
-  //       >
-  //         <h2 className="text-xl font-bold text-slate-800">FinBank Login</h2>
-  //         <input
-  //           className="w-full p-2 border rounded"
-  //           type="email"
-  //           value={email}
-  //           onChange={(e) => setEmail(e.target.value)}
-  //           placeholder="Email"
-  //           required
-  //         />
-  //         <input
-  //           className="w-full p-2 border rounded"
-  //           type="password"
-  //           value={password}
-  //           onChange={(e) => setPassword(e.target.value)}
-  //           placeholder="Password"
-  //           required
-  //         />
-  //         <button
-  //           className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700"
-  //           type="submit"
-  //         >
-  //           Sign In
-  //         </button>
-  //       </form>
-  //     </div>
-  //   );
-  // }
 
   if (!token) {
     return (
@@ -430,7 +432,7 @@ export default function FinBankDashboard() {
             </button>
           </div>
 
-         {/*inapp notification*/}
+          {/*inapp notification*/}
           <div className="relative">
             <button
               onClick={() => setShowNotifications(!showNotifications)}
