@@ -45,7 +45,17 @@ export default function FinBankDashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [search, setSearch] = useState("");
   const [authMsg, setAuthMsg] = useState("");
-
+  const [transferType, setTransferType] = useState<"internal" | "external">(
+    "internal",
+  );
+  const [externalAccNum, setExternalAccNum] = useState("");
+  const [lookupRecipient, setLookupRecipient] = useState<{
+    account_id: string;
+    owner_name: string;
+    account_type: string;
+  } | null>(null);
+  const [lookupError, setLookupError] = useState("");
+  const [isTransferring, setIsTransferring] = useState(false);
   // notifications state
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -120,6 +130,23 @@ export default function FinBankDashboard() {
   const logout = () => {
     localStorage.removeItem("token");
     setToken(null);
+  };
+
+  const handleLookup = async () => {
+    setLookupError("");
+    setLookupRecipient(null);
+    if (!externalAccNum) return;
+
+    const res = await fetch(`${API_BASE}/accounts/lookup/${externalAccNum}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setLookupRecipient(data);
+      setDestId(data.account_id);
+    } else {
+      setLookupError(data.detail || "Account lookup failed");
+    }
   };
 
   // fetch user  profile
@@ -207,28 +234,43 @@ export default function FinBankDashboard() {
   // transfer
   const handleTransfer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (isTransferring) return;
+    setIsTransferring(true);
     setTransferMsg("");
-    const res = await fetch(`${API_BASE}/transfers/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        source_account_id: sourceId,
-        destination_account_id: destId,
-        amount: parseFloat(amount),
-      }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setTransferMsg("Transfer successful!");
-      setAmount("");
-      fetchAccounts();
-      fetchTransactions();
-      fetchNotifications();
-    } else {
-      setTransferMsg(`Error: ${data.detail}`);
+
+    //we giv it an idempotency key to avoid duplicate transfer
+    const idempotencyKey = `idempotency-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    try {
+      const res = await fetch(`${API_BASE}/transfers/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          source_account_id: sourceId,
+          destination_account_id: destId,
+          amount: parseFloat(amount),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTransferMsg("Transfer successful!");
+        setAmount("");
+        fetchAccounts();
+        fetchTransactions();
+        fetchNotifications();
+      } else {
+        setTransferMsg(`Error: ${data.detail || "Transfer failed"}`);
+      }
+    } catch (err) {
+      console.error("Transfer error:", err);
+      setTransferMsg("Error: Network failure or request timeout.");
+    } finally {
+      // Re-enable the button after process completes
+      setIsTransferring(false);
     }
   };
 
@@ -349,7 +391,7 @@ export default function FinBankDashboard() {
               Email Address
             </label>
             <input
-              className="w-full p-2 border rounded text-sm"
+              className="w-full p-2 border rounded text-sm text-black"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -363,7 +405,7 @@ export default function FinBankDashboard() {
               Password
             </label>
             <input
-              className="w-full p-2 border rounded text-sm"
+              className="w-full p-2 border rounded text-sm text-black"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -524,9 +566,10 @@ export default function FinBankDashboard() {
                   </div>
                   <div className="text-sm text-slate-500 mt-1">
                     Account #:{" "}
-                    {acc.account_number.length > 4
+                    {/*{acc.account_number.length > 4
                       ? `****${acc.account_number.slice(-4)}`
-                      : acc.account_number}
+                      : acc.account_number}*/}
+                    <span>{acc.account_number}</span>
                   </div>
                   <div className="text-2xl font-bold text-slate-800 mt-2">
                     $
@@ -549,14 +592,74 @@ export default function FinBankDashboard() {
 
           {/* transfer form */}
           <section className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-700 mb-4">
-              Transfer Money
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-slate-700">
+                Transfer Money
+              </h2>
+              <div className="flex space-x-2 text-xs">
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded font-medium ${transferType === "internal" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
+                  onClick={() => {
+                    setTransferType("internal");
+                    setLookupRecipient(null);
+                    setDestId("");
+                  }}
+                >
+                  My Accounts
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded font-medium ${transferType === "external" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
+                  onClick={() => {
+                    setTransferType("external");
+                    setDestId("");
+                  }}
+                >
+                  Other Customer
+                </button>
+              </div>
+            </div>
+
             {transferMsg && (
               <div className="mb-4 text-sm text-blue-600 font-medium">
                 {transferMsg}
               </div>
             )}
+
+            {transferType === "external" && (
+              <div className="mb-4 p-3 bg-slate-50 border rounded text-xs space-y-2">
+                <label className="block font-medium text-slate-600">
+                  Enter Recipient Account Number
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    className="p-2 border rounded text-sm w-64"
+                    type="text"
+                    placeholder="e.g. 9876544829"
+                    value={externalAccNum}
+                    onChange={(e) => setExternalAccNum(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="bg-slate-800 text-white px-3 py-1.5 rounded hover:bg-slate-900"
+                    onClick={handleLookup}
+                  >
+                    Verify Recipient
+                  </button>
+                </div>
+                {lookupError && (
+                  <p className="text-red-500 font-medium">{lookupError}</p>
+                )}
+                {lookupRecipient && (
+                  <p className="text-green-700 font-medium">
+                    ✓ Found: {lookupRecipient.owner_name} (
+                    {lookupRecipient.account_type})
+                  </p>
+                )}
+              </div>
+            )}
+
             <form
               onSubmit={handleTransfer}
               className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
@@ -579,24 +682,28 @@ export default function FinBankDashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  To Account
-                </label>
-                <select
-                  className="w-full p-2 border rounded"
-                  value={destId}
-                  onChange={(e) => setDestId(e.target.value)}
-                  required
-                >
-                  <option value="">Select Account</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.account_type} ({a.account_number})
-                    </option>
-                  ))}
-                </select>
-              </div>
+
+              {transferType === "internal" && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    To Account
+                  </label>
+                  <select
+                    className="w-full p-2 border rounded"
+                    value={destId}
+                    onChange={(e) => setDestId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Account</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.account_type} ({a.account_number})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
                   Amount ($)
@@ -611,11 +718,23 @@ export default function FinBankDashboard() {
                   required
                 />
               </div>
+
               <button
-                className="bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700"
+                className="bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2 transition-all"
                 type="submit"
+                disabled={isTransferring || (transferType === 'external' && !lookupRecipient)}
               >
-                Submit Transfer
+                {isTransferring ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <span>Submit Transfer</span>
+                )}
               </button>
             </form>
           </section>
