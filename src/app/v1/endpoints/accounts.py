@@ -1,13 +1,13 @@
 import random
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.account_model import Account, AccountType
 from app.models.users_model import User
-from app.schemas.account_schema import AccountCreateSchema, AccountResponseSchema
+from app.schemas.account_schema import AccountCreateSchema, AccountLookupResponse, AccountResponseSchema
 from app.v1.endpoints.auth import get_current_user
 
 router = APIRouter()
@@ -45,3 +45,41 @@ async def create_account(
     await db.commit()
     await db.refresh(account)
     return account
+
+@router.get("/lookup/{account_number}", response_model=AccountLookupResponse)
+async def lookup_account_by_number(
+    account_number: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """check for a beneficiary account by full account number to verify recipient name."""
+    stmt = (
+        select(Account, User)
+        .join(User, Account.user_id == User.id)
+        .where(Account.account_number == account_number)
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account number not found."
+        )
+
+    account, owner = row
+
+    if account.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This is your own account. Use internal transfers instead."
+        )
+
+    masked_acc = f"****{account.account_number[-4:]}" if len(account.account_number) >= 4 else account.account_number
+
+    return {
+        "account_id": str(account.id),
+        "account_number_masked": masked_acc,
+        "account_type": account.account_type,
+        "owner_name": owner.full_name
+    }

@@ -10,6 +10,12 @@ class AccountCreateSchema(BaseModel):
     account_type: AccountType
     initial_deposit: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0.00"))
 
+class AccountLookupResponse(BaseModel):
+    account_id: str
+    account_number_masked: str
+    account_type: str
+    owner_name: str
+
 
 class AccountResponseSchema(BaseModel):
     id: uuid.UUID

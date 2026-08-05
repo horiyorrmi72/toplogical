@@ -92,14 +92,18 @@ class TransferService:
 
         ref_no = f"TXN-{uuid.uuid4().hex[:10].upper()}"
 
+        # if it is an external transfer, we categorize it as a payment; otherwise, it's a transfer
+        is_external = source_acc.user_id != dest_acc.user_id
+        category = TransactionCategory.TRANSFER if not is_external else TransactionCategory.PAYMENT
+
         transaction = Transaction(
             reference_number=ref_no,
             source_account_id=source_acc.id,
             destination_account_id=dest_acc.id,
             amount=amount,
-            category=TransactionCategory.TRANSFER,
+            category=category,
             status=TransactionStatus.COMPLETED,
-            description=description or "Internal Transfer",
+            description=description or ("Peer-to-Peer Transfer" if is_external else "Internal Transfer"),
         )
 
         db.add(transaction)
@@ -109,8 +113,16 @@ class TransferService:
             db=db,
             user_id=user_id,
             title="Transfer Successful",
-            message=f"Transferred ${amount:,.2f} from {source_acc.account_number[-4:]} to {dest_acc.account_number[-4:]}.",
+            message=f"Sent ${amount:,.2f} from your {source_acc.account_type.value} ending in {source_acc.account_number[-4:]}."
         )
+
+        if is_external:
+            await NotificationService.create_notification(
+                db=db,
+                user_id=dest_acc.user_id,
+                title="Transfer Received",
+                message=f"Received ${amount:,.2f} from your {source_acc.account_type.value} ending in {source_acc.account_number[-4:]}.",
+            )
 
         await db.commit()
         await db.refresh(transaction)
