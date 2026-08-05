@@ -334,7 +334,7 @@ export default function FinBankDashboard() {
                 Full Name
               </label>
               <input
-                className="w-full p-2 border rounded text-sm"
+                className="w-full p-2 border rounded text-sm text-black"
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
