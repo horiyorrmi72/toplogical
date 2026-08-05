@@ -409,7 +409,7 @@ export default function FinBankDashboard() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="••"
               required
               minLength={8}
             />
