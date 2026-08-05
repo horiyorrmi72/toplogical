@@ -3,6 +3,7 @@
 import { Bell } from "lucide-react";
 
 import React, { useState, useEffect } from "react";
+import { toast } from "sonner";
 // const API_BASE = "http://localhost:8000/api/v1";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
@@ -55,6 +56,7 @@ export default function FinBankDashboard() {
     account_type: string;
   } | null>(null);
   const [lookupError, setLookupError] = useState("");
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
   // notifications state
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -76,6 +78,10 @@ export default function FinBankDashboard() {
   const [amount, setAmount] = useState("");
   const [transferMsg, setTransferMsg] = useState("");
 
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isRegisteringSubmit, setIsRegisteringSubmit] = useState(false);
+  const [downloadingTxnId, setDownloadingTxnId] = useState<string | null>(null);
+
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
 
@@ -87,42 +93,62 @@ export default function FinBankDashboard() {
   // handle Login
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
-    if (res.ok && data.access_token) {
-      localStorage.setItem("token", data.access_token);
-      setToken(data.access_token);
-    } else {
-      console.error(data);
-      alert(data.detail || "Login failed");
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.ok && data.access_token) {
+        localStorage.setItem("token", data.access_token);
+        setToken(data.access_token);
+      } else {
+        console.error(data);
+        toast.error(data.detail || "Login failed");
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      toast.error("Network error while trying to sign in.");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   // registeration
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isRegisteringSubmit) return;
+    setIsRegisteringSubmit(true);
+
     setAuthMsg("");
 
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email,
-        password,
-        full_name: fullName,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          full_name: fullName,
+        }),
+      });
 
-    const data = await res.json();
-    if (res.ok) {
-      setAuthMsg("Registration successful! Logging you in...");
-      await handleLogin(e);
-    } else {
-      setAuthMsg(`Error: ${data.detail || "Registration failed"}`);
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Registration successful! Logging you in...");
+        await handleLogin(e);
+      } else {
+        toast.error(`Error: ${data.detail || "Registration failed"}`);
+      }
+    } catch (err) {
+      console.error("Registration error:", err);
+      toast.error("Network error during registration.");
+    } finally {
+      setIsRegisteringSubmit(false);
     }
   };
 
@@ -133,6 +159,7 @@ export default function FinBankDashboard() {
   };
 
   const handleLookup = async () => {
+    if (isLookingUp || !externalAccNum) return;
     setLookupError("");
     setLookupRecipient(null);
     if (!externalAccNum) return;
@@ -144,8 +171,12 @@ export default function FinBankDashboard() {
     if (res.ok) {
       setLookupRecipient(data);
       setDestId(data.account_id);
+      toast.success(
+        `Found recipient: ${data.owner_name} (${data.account_type})`,
+      );
     } else {
       setLookupError(data.detail || "Account lookup failed");
+      toast.error(data.detail || "Account lookup failed");
     }
   };
 
@@ -257,17 +288,17 @@ export default function FinBankDashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        setTransferMsg("Transfer successful!");
+        toast.success("Transfer successful!");
         setAmount("");
         fetchAccounts();
         fetchTransactions();
         fetchNotifications();
       } else {
-        setTransferMsg(`Error: ${data.detail || "Transfer failed"}`);
+        toast.error(`Error: ${data.detail || "Transfer failed"}`);
       }
     } catch (err) {
       console.error("Transfer error:", err);
-      setTransferMsg("Error: Network failure or request timeout.");
+      toast.error("Error: Network failure or request timeout.");
     } finally {
       // Re-enable the button after process completes
       setIsTransferring(false);
@@ -292,10 +323,10 @@ export default function FinBankDashboard() {
       return;
     }
     if (res.ok) {
-      setProfileMsg("Profile name updated successfully!");
+      toast.success("Profile name updated successfully!");
       fetchProfile();
     } else {
-      setProfileMsg(`Error: ${data.detail}`);
+      toast.error(`Error: ${data.detail}`);
     }
   };
 
@@ -320,29 +351,37 @@ export default function FinBankDashboard() {
       return;
     }
     if (res.ok) {
-      setProfileMsg("Password updated successfully!");
+      toast.success("Password updated successfully!");
       setCurrentPasswordInput("");
       setNewPasswordInput("");
     } else {
-      setProfileMsg(`Error: ${data.detail}`);
+      toast.error(`Error: ${data.detail}`);
     }
   };
 
   // download PDF receipt
   const downloadReceipt = (txnId: string, refNo: string) => {
-    fetch(`${API_BASE}/transactions/${txnId}/receipt/download`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.blob())
-      .then((blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `receipt_${refNo}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      });
+    if (downloadingTxnId === txnId) return;
+    setDownloadingTxnId(txnId);
+    try {
+      fetch(`${API_BASE}/transactions/${txnId}/receipt/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.blob())
+        .then((blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `receipt_${refNo}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        });
+    } catch (err) {
+      console.error("Download error:", err);
+    } finally {
+      setDownloadingTxnId(null);
+    }
   };
 
   if (!mounted) {
@@ -416,10 +455,39 @@ export default function FinBankDashboard() {
           </div>
 
           <button
-            className="w-full bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700 text-sm"
+            className="w-full bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700 text-sm disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2 transition-all"
             type="submit"
+            disabled={isRegistering ? isRegisteringSubmit : isLoggingIn}
           >
-            {isRegistering ? "Sign Up" : "Sign In"}
+            {(isRegistering ? isRegisteringSubmit : isLoggingIn) ? (
+              <>
+                <svg
+                  className="animate-spin h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                <span>
+                  {isRegistering ? "Creating Account..." : "Signing In..."}
+                </span>
+              </>
+            ) : (
+              <span>{isRegistering ? "Sign Up" : "Sign In"}</span>
+            )}
           </button>
 
           <div className="text-center pt-2">
@@ -628,38 +696,69 @@ export default function FinBankDashboard() {
             )}
 
             {transferType === "external" && (
-              <div className="mb-4 p-3 bg-slate-50 border rounded text-xs space-y-2">
+              <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded text-xs space-y-2">
                 <label className="block font-medium text-slate-600">
                   Enter Recipient Account Number
                 </label>
                 <div className="flex space-x-2">
                   <input
-                    className="p-2 border rounded text-sm w-64"
+                    className="p-2 border rounded text-sm w-64 bg-white"
                     type="text"
                     placeholder="e.g. 9876544829"
                     value={externalAccNum}
                     onChange={(e) => setExternalAccNum(e.target.value)}
+                    disabled={isLookingUp}
                   />
                   <button
                     type="button"
-                    className="bg-slate-800 text-white px-3 py-1.5 rounded hover:bg-slate-900"
+                    className="bg-slate-800 text-white px-3 py-1.5 rounded hover:bg-slate-900 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center space-x-2 text-xs font-medium transition-all"
                     onClick={handleLookup}
+                    disabled={isLookingUp || !externalAccNum.trim()}
                   >
-                    Verify Recipient
+                    {isLookingUp ? (
+                      <>
+                        <svg
+                          className="animate-spin h-3.5 w-3.5 text-white"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <span>Verify Recipient</span>
+                    )}
                   </button>
                 </div>
+
                 {lookupError && (
-                  <p className="text-red-500 font-medium">{lookupError}</p>
+                  <p className="text-red-500 font-medium text-xs mt-1">
+                    {lookupError}
+                  </p>
                 )}
+
                 {lookupRecipient && (
-                  <p className="text-green-700 font-medium">
-                    ✓ Found: {lookupRecipient.owner_name} (
+                  <p className="text-green-700 font-medium text-xs mt-1">
+                    ✓ Verified: {lookupRecipient.owner_name} (
                     {lookupRecipient.account_type})
                   </p>
                 )}
               </div>
             )}
-
             <form
               onSubmit={handleTransfer}
               className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
@@ -722,13 +821,32 @@ export default function FinBankDashboard() {
               <button
                 className="bg-blue-600 text-white p-2 rounded font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2 transition-all"
                 type="submit"
-                disabled={isTransferring || (transferType === 'external' && !lookupRecipient)}
+                disabled={
+                  isTransferring ||
+                  (transferType === "external" && !lookupRecipient)
+                }
               >
                 {isTransferring ? (
                   <>
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="animate-spin h-4 w-4 text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Processing...</span>
                   </>
@@ -781,12 +899,39 @@ export default function FinBankDashboard() {
                       </td>
                       <td className="p-2">
                         <button
-                          className="text-xs text-blue-600 underline"
+                          className="text-xs text-blue-600 font-medium underline hover:text-blue-800 disabled:text-slate-400 disabled:no-underline flex items-center space-x-1"
                           onClick={() =>
                             downloadReceipt(t.id, t.reference_number)
                           }
+                          disabled={downloadingTxnId === t.id}
                         >
-                          Download PDF
+                          {downloadingTxnId === t.id ? (
+                            <>
+                              <svg
+                                className="animate-spin h-3 w-3 text-blue-600"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                              <span>Downloading...</span>
+                            </>
+                          ) : (
+                            <span>Download PDF</span>
+                          )}
                         </button>
                       </td>
                     </tr>
